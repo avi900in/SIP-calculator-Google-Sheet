@@ -1,0 +1,128 @@
+/**
+ * @OnlyCurrentDoc
+ */
+
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu('SIP Tools')
+    .addItem('Create SIP Calculator', 'createSIPCalculator')
+    .addToUi();
+}
+
+/**
+ * Generates the SIP Calculator Dashboard with necessary formulas and formatting.
+ */
+function createSIPCalculator() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName('SIP Calculator');
+  
+  // Create sheet if it doesn't exist, or clear it if it does
+  if (sheet) {
+    sheet.clear();
+  } else {
+    sheet = ss.insertSheet('SIP Calculator');
+  }
+
+  // --- 1. SET UP HEADERS AND INPUTS ---
+  
+  // Set Column Widths for better visibility
+  sheet.setColumnWidth(1, 150); // Labels
+  sheet.setColumnWidth(2, 150); // Inputs
+  sheet.setColumnWidth(3, 50);  // Spacer
+  sheet.setColumnWidth(4, 120); // Data Date
+  sheet.setColumnWidth(5, 100); // Data Price
+  sheet.setColumnWidth(6, 50);  // Spacer
+  sheet.setColumnWidth(7, 120); // SIP Date
+  sheet.setColumnWidth(8, 100); // SIP Price
+  sheet.setColumnWidth(9, 100); // Units Bought
+  
+  // Input Labels
+  const inputs = [
+    ['SIP CONFIGURATION', ''],
+    ['Stock Ticker', 'NASDAQ:GOOG'],
+    ['Start Date', '2020-01-01'],
+    ['End Date', '=TODAY()'],
+    ['Tenor / Frequency', 'Monthly'],
+    ['Amount per Period ($)', 1000]
+  ];
+  
+  const inputRange = sheet.getRange("A1:B6");
+  inputRange.setValues(inputs);
+  
+  // Output Labels
+  const outputs = [
+    ['RESULTS SUMMARY', ''],
+    ['', ''], // Spacer row to align labels with formulas starting at row 11
+    ['Total Invested', ''],  // Formula will go here
+    ['Total Units Owned', ''],
+    ['Current Market Price', ''],
+    ['Net Value Today', ''],
+    ['Absolute Return %', '']
+  ];
+  
+  const outputRange = sheet.getRange("A9:B15");
+  outputRange.setValues(outputs);
+
+  // --- 2. INJECT FORMULAS ---
+
+  // B11: Total Invested
+  // We count the number of successful transactions in column I and multiply by the investment amount (B6)
+  sheet.getRange("B11").setFormula('=COUNT(I2:I) * B6');
+  
+  // B12: Total Units
+  sheet.getRange("B12").setFormula('=SUM(I2:I)');
+  
+  // B13: Current Price
+  sheet.getRange("B13").setFormula('=IFERROR(GOOGLEFINANCE(B2), "Loading...")');
+  
+  // B14: Net Value
+  sheet.getRange("B14").setFormula('=B12 * B13');
+  
+  // B15: Return %
+  sheet.getRange("B15").setFormula('=IF(B11>0, (B14-B11)/B11, 0)');
+  
+  // --- 3. THE CALCULATION ENGINE (Columns D through I) ---
+  
+  // Headers for Calculation Area
+  sheet.getRange("D1:E1").setValues([['Raw Data Date', 'Close Price']]).setFontWeight('bold');
+  sheet.getRange("G1:I1").setValues([['SIP Date', 'Execution Price', 'Units Purchased']]).setFontWeight('bold');
+
+  // FORMULA 1: Fetch ALL historical data (Helper Columns D & E)
+  // We fetch everything first so we can lookup prices even if the SIP date falls on a weekend
+  sheet.getRange("D2").setFormula('=GOOGLEFINANCE(B2, "close", B3, B4)');
+
+  // FORMULA 2: Generate SIP Dates (Column G)
+  // Generates a list of dates spaced by months from Start to End
+  sheet.getRange("G2").setFormula('=ARRAYFORMULA(EDATE(B3, SEQUENCE(DATEDIF(B3, B4, "M") + 1, 1, 0)))');
+
+  // FORMULA 3: Lookup Execution Price (Column H)
+  // Uses VLOOKUP with TRUE (sorted match) to find the price on the SIP date. 
+  // If SIP date is Sunday, it takes Friday's price.
+  sheet.getRange("H2").setFormula('=ARRAYFORMULA(IF(G2:G="",,IFERROR(VLOOKUP(G2:G, D:E, 2, TRUE), "No Data")))');
+
+  // FORMULA 4: Calculate Units (Column I)
+  // FIX: Replaced OR() with addition (+), as standard OR() does not work correctly in ArrayFormulas for row-by-row logic.
+  sheet.getRange("I2").setFormula('=ARRAYFORMULA(IF((H2:H="") + (H2:H="No Data"),, B6/H2:H))');
+
+  // --- 4. STYLING ---
+  
+  // Header Styles
+  sheet.getRange("A1:B1").setBackground("#4285F4").setFontColor("white").setFontWeight("bold");
+  sheet.getRange("A9:B9").setBackground("#0F9D58").setFontColor("white").setFontWeight("bold");
+  
+  // Input Validation / Formatting
+  sheet.getRange("B6").setNumberFormat("$#,##0.00"); // Amount
+  sheet.getRange("B11").setNumberFormat("$#,##0.00"); // Total Invested
+  sheet.getRange("B13:B14").setNumberFormat("$#,##0.00"); // Value
+  sheet.getRange("B15").setNumberFormat("0.00%"); // Percent
+  
+  sheet.getRange("D2:D").setNumberFormat("yyyy-mm-dd");
+  sheet.getRange("G2:G").setNumberFormat("yyyy-mm-dd");
+
+  // Instructions
+  sheet.getRange("A17").setValue("Note: Columns D-E are helper columns fetching raw history. Columns G-I calculate the specific SIP transactions.");
+  sheet.getRange("A17").setFontStyle("italic").setFontColor("#666666");
+  
+  SpreadsheetApp.flush();
+  SpreadsheetApp.getUi().alert("SIP Calculator Created! \n\nYou can now edit the Ticker, Start Date, and Amount in the blue section.");
+}
